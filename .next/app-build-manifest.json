@@ -1,30 +1,30 @@
 {
   "pages": {
-    "/backend/categories/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/backend/categories/page.js"
-    ],
-    "/backend/layout": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/backend/layout.js"
-    ],
     "/layout": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/css/app/layout.css",
       "static/chunks/app/layout.js"
     ],
-    "/backend/page": [
+    "/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/backend/page.js"
+      "static/chunks/app/page.js"
     ],
-    "/backend/sessions/page": [
+    "/login/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/backend/sessions/page.js"
+      "static/chunks/app/login/page.js"
+    ],
+    "/admin/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/admin/page.js"
+    ],
+    "/admin/layout": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/admin/layout.js"
     ],
     "/pos/layout": [
       "static/chunks/webpack.js",
@@ -36,45 +36,30 @@
       "static/chunks/main-app.js",
       "static/chunks/app/pos/floor/page.js"
     ],
-    "/pos/order/[tableId]/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/pos/order/[tableId]/page.js"
-    ],
     "/customer-display/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/customer-display/page.js"
     ],
-    "/kitchen/page": [
+    "/admin/categories/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/kitchen/page.js"
+      "static/chunks/app/admin/categories/page.js"
     ],
-    "/reports/page": [
+    "/admin/products/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/reports/page.js"
+      "static/chunks/app/admin/products/page.js"
     ],
-    "/backend/floors/page": [
+    "/admin/floors/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/backend/floors/page.js"
+      "static/chunks/app/admin/floors/page.js"
     ],
-    "/backend/payment-methods/page": [
+    "/not-found": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/backend/payment-methods/page.js"
-    ],
-    "/login/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/login/page.js"
-    ],
-    "/backend/settings/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/backend/settings/page.js"
+      "static/chunks/app/not-found.js"
     ]
   }
 }

@@ -1,11 +1,9 @@
 {
-  "/reports/page": "app/reports/page.js",
-  "/api/floors/route": "app/api/floors/route.js",
-  "/api/orders/route": "app/api/orders/route.js",
-  "/backend/floors/page": "app/backend/floors/page.js",
-  "/backend/page": "app/backend/page.js",
-  "/backend/payment-methods/page": "app/backend/payment-methods/page.js",
-  "/backend/categories/page": "app/backend/categories/page.js",
-  "/backend/settings/page": "app/backend/settings/page.js",
+  "/not-found": "app/not-found.js",
+  "/api/categories/route": "app/api/categories/route.js",
+  "/customer-display/page": "app/customer-display/page.js",
+  "/admin/page": "app/admin/page.js",
+  "/admin/categories/page": "app/admin/categories/page.js",
+  "/admin/floors/page": "app/admin/floors/page.js",
   "/pos/floor/page": "app/pos/floor/page.js"
 }

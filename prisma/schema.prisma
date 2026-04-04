@@ -17,6 +17,8 @@ enum UserRole {
 enum OrderStatus {
   DRAFT
   SENT
+  PREPARING
+  READY
   PAID
   CANCELLED
 }
