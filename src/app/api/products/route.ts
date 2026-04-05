@@ -3,24 +3,32 @@ import { queryCustom } from '@/backend/database/direct';
 
 export async function GET() {
   try {
-    // Fetch products with their categories
-    const products = await queryCustom(`
-      SELECT p.*, c.name as "categoryName", c.color as "categoryColor"
+    // Fetch products with their categories and variants in a single efficient query
+    const enrichedProducts = await queryCustom(`
+      SELECT 
+        p.*, 
+        c.name as "categoryName", 
+        c.color as "categoryColor",
+        COALESCE(
+          (
+            SELECT json_agg(v.*) 
+            FROM "ProductVariant" v 
+            WHERE v."productId" = p.id
+          ), 
+          '[]'
+        ) as variants
       FROM "Product" p
       LEFT JOIN "Category" c ON p."categoryId" = c.id
       ORDER BY p.name ASC
     `);
 
-    // Fetch all variants and group them by productId
-    const variantsList = await queryCustom('SELECT * FROM "ProductVariant"');
-    
-    const enrichedProducts = products.map((p: any) => ({
+    // Format the result to match the expected frontend structure
+    const formattedProducts = enrichedProducts.map((p: any) => ({
       ...p,
-      category: p.categoryId ? { id: p.categoryId, name: p.categoryName, color: p.categoryColor } : null,
-      variants: variantsList.filter((v: any) => v.productId === p.id)
+      category: p.categoryId ? { id: p.categoryId, name: p.categoryName, color: p.categoryColor } : null
     }));
 
-    return NextResponse.json(enrichedProducts);
+    return NextResponse.json(formattedProducts);
   } catch (e: any) {
     console.error('PRODUCTS_GET_ERROR:', e);
     return NextResponse.json({ error: e.message || 'Database execution failed' }, { status: 500 });

@@ -12,6 +12,7 @@ interface Order {
   id: string; status: string; createdAt: string; total: number;
   table?: { number: string; floor: { name: string } };
   items: OrderItem[];
+  payment?: { method: string; amount: number };
 }
 
 type KitchenStatus = 'SENT' | 'PREPARING' | 'READY';
@@ -68,7 +69,7 @@ export default function KitchenPage() {
   }, []);
 
   async function moveStatus(order: Order) {
-    const next: Record<string, string> = { SENT: 'PREPARING', PREPARING: 'READY' };
+    const next: Record<string, string> = { SENT: 'PREPARING', PREPARING: 'READY', READY: 'PAID' };
     const nextStatus = next[order.status];
     if (!nextStatus) return;
     await fetch(`/api/orders/${order.id}`, {
@@ -158,8 +159,12 @@ export default function KitchenPage() {
                         </h2>
                       </div>
                       <div className="text-right">
-                         <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Index #{order.id.slice(-4)}</div>
                          <div className="text-sm font-black text-primary tracking-tighter">{new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                         {order.payment && (
+                           <div className="inline-block mt-2 px-3 py-1 bg-emerald-500/20 border border-emerald-500/30 rounded-lg text-[9px] font-black text-emerald-400 uppercase tracking-widest shadow-xl shadow-emerald-500/5">
+                             Verified Paid ✓
+                           </div>
+                         )}
                       </div>
                     </div>
 

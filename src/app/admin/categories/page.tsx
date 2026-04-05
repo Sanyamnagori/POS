@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import CategoryForm from '@/components/admin/categories/CategoryForm';
 import CategoryList from '@/components/admin/categories/CategoryList';
 import { motion } from 'framer-motion';
+import ConfirmModal from '@/frontend/components/shared/ConfirmModal';
 
 interface Category {
   id: string;
@@ -16,6 +17,7 @@ export default function CategoriesPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [editCat, setEditCat] = useState<Category | null>(null);
   const [loading, setLoading] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<{ isOpen: boolean; id: string }>({ isOpen: false, id: '' });
 
   async function load() {
     const res = await fetch('/api/categories');
@@ -52,7 +54,11 @@ export default function CategoriesPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Permanent Wipe: Delete this category? High-risk action.')) return;
+    setConfirmDelete({ isOpen: true, id });
+  }
+
+  async function executeDelete() {
+    const id = confirmDelete.id;
     try {
       const res = await fetch(`/api/categories/${id}`, { method: 'DELETE' });
       if (!res.ok) {
@@ -63,6 +69,8 @@ export default function CategoriesPage() {
       load();
     } catch (e: any) {
       toast.error(e.message);
+    } finally {
+      setConfirmDelete({ isOpen: false, id: '' });
     }
   }
 
@@ -115,6 +123,16 @@ export default function CategoriesPage() {
           />
         </div>
       </div>
+
+      <ConfirmModal 
+        isOpen={confirmDelete.isOpen}
+        title="Wipe Classification?"
+        message="This will permanently purge this category from the registry. This action cannot be reversed."
+        onConfirm={executeDelete}
+        onCancel={() => setConfirmDelete({ isOpen: false, id: '' })}
+        confirmText="Purge Registry"
+        type="danger"
+      />
     </div>
   );
 }

@@ -20,67 +20,110 @@ export async function GET(req: NextRequest) {
     }
 
     const startDateStr = startDate.toISOString();
-    
-    // Fetch paid orders within the period
-    let orderQuery = 'SELECT * FROM "Order" WHERE status = \'PAID\' AND "createdAt" >= $1';
     const queryParams: any[] = [startDateStr];
+    const sessionFilter = sessionId ? ` AND "sessionId" = $2` : '';
+    if (sessionId) queryParams.push(sessionId);
 
-    if (sessionId) {
-      orderQuery += ' AND "sessionId" = $2';
-      queryParams.push(sessionId);
-    }
+    // ── 1. Aggregate order-level stats in a single query ──
+    const summaryRows = await queryCustom(`
+      SELECT 
+        COUNT(*)::int AS "totalOrders",
+        COALESCE(SUM(total), 0) AS "totalRevenue",
+        COALESCE(AVG(total), 0) AS "avgOrderValue"
+      FROM "Order"
+      WHERE status = 'PAID' AND "createdAt" >= $1 ${sessionFilter}
+    `, queryParams);
 
-    const orders = await queryCustom(orderQuery, queryParams);
+    const { totalOrders, totalRevenue, avgOrderValue } = summaryRows[0] || { totalOrders: 0, totalRevenue: 0, avgOrderValue: 0 };
 
-    // Fetch order items with product and category info
-    const items = await queryCustom(`
-      SELECT i.*, p.name as "productName", c.name as "categoryName", c.id as "categoryId"
+    // ── 2. Top products by revenue (SQL aggregation) ──
+    const topProducts = await queryCustom(`
+      SELECT 
+        p.name,
+        SUM(i.quantity)::int AS qty,
+        SUM(i.price * i.quantity) AS revenue
+      FROM "OrderItem" i
+      JOIN "Product" p ON i."productId" = p.id
+      WHERE i."orderId" IN (
+        SELECT id FROM "Order" WHERE status = 'PAID' AND "createdAt" >= $1 ${sessionFilter}
+      )
+      GROUP BY p.id, p.name
+      ORDER BY revenue DESC
+      LIMIT 10
+    `, queryParams);
+
+    // ── 3. Top categories by revenue (SQL aggregation) ──
+    const topCategories = await queryCustom(`
+      SELECT 
+        c.name,
+        SUM(i.price * i.quantity) AS revenue
       FROM "OrderItem" i
       JOIN "Product" p ON i."productId" = p.id
       LEFT JOIN "Category" c ON p."categoryId" = c.id
-      WHERE i."orderId" IN (SELECT id FROM "Order" WHERE status = 'PAID' AND "createdAt" >= $1 ${sessionId ? 'AND "sessionId" = $2' : ''})
+      WHERE i."orderId" IN (
+        SELECT id FROM "Order" WHERE status = 'PAID' AND "createdAt" >= $1 ${sessionFilter}
+      )
+      GROUP BY c.id, c.name
+      ORDER BY revenue DESC
+      LIMIT 10
     `, queryParams);
 
-    const totalOrders = orders.length;
-    const totalRevenue = orders.reduce((sum: number, o: any) => sum + o.total, 0);
-    const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
-
-    const productMap: Record<string, { name: string; qty: number; revenue: number }> = {};
-    const categoryMap: Record<string, { name: string; revenue: number }> = {};
-
-    items.forEach((item: any) => {
-      const pid = item.productId;
-      if (!productMap[pid]) productMap[pid] = { name: item.productName, qty: 0, revenue: 0 };
-      productMap[pid].qty += item.quantity;
-      productMap[pid].revenue += item.price * item.quantity;
-
-      if (item.categoryId) {
-        if (!categoryMap[item.categoryId]) categoryMap[item.categoryId] = { name: item.categoryName, revenue: 0 };
-        categoryMap[item.categoryId].revenue += item.price * item.quantity;
-      }
-    });
-
-    const topProducts = Object.values(productMap)
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 5);
-    const topCategories = Object.values(categoryMap)
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 5);
+    // ── 4. Daily sales aggregation (SQL) ──
+    const dailySalesRows = await queryCustom(`
+      SELECT 
+        TO_CHAR("createdAt" AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD') AS day,
+        SUM(total) AS revenue
+      FROM "Order"
+      WHERE status = 'PAID' AND "createdAt" >= $1 ${sessionFilter}
+      GROUP BY day
+      ORDER BY day ASC
+    `, queryParams);
 
     const dailySales: Record<string, number> = {};
-    orders.forEach((o: any) => {
-      const day = new Date(o.createdAt).toLocaleDateString('en-IN');
-      if (!dailySales[day]) dailySales[day] = 0;
-      dailySales[day] += o.total;
+    dailySalesRows.forEach((row: any) => {
+      dailySales[row.day] = parseFloat(row.revenue) || 0;
     });
 
+    // ── 5. Hourly distribution (for enhanced reports) ──
+    const hourlyRows = await queryCustom(`
+      SELECT 
+        EXTRACT(HOUR FROM "createdAt" AT TIME ZONE 'Asia/Kolkata')::int AS hour,
+        COUNT(*)::int AS orders,
+        SUM(total) AS revenue
+      FROM "Order"
+      WHERE status = 'PAID' AND "createdAt" >= $1 ${sessionFilter}
+      GROUP BY hour
+      ORDER BY hour ASC
+    `, queryParams);
+
+    const hourlyDistribution: Record<string, { orders: number; revenue: number }> = {};
+    hourlyRows.forEach((row: any) => {
+      const label = `${String(row.hour).padStart(2, '0')}:00`;
+      hourlyDistribution[label] = { orders: row.orders, revenue: parseFloat(row.revenue) || 0 };
+    });
+
+    // ── 6. Payment method breakdown ──
+    const paymentBreakdown = await queryCustom(`
+      SELECT 
+        pm.method,
+        COUNT(*)::int AS count,
+        SUM(pm.amount) AS total
+      FROM "Payment" pm
+      JOIN "Order" o ON pm."orderId" = o.id
+      WHERE o.status = 'PAID' AND o."createdAt" >= $1 ${sessionFilter}
+      GROUP BY pm.method
+      ORDER BY total DESC
+    `, queryParams);
+
     return NextResponse.json({
-      totalOrders,
-      totalRevenue,
-      avgOrderValue,
+      totalOrders: parseInt(totalOrders) || 0,
+      totalRevenue: parseFloat(totalRevenue) || 0,
+      avgOrderValue: parseFloat(avgOrderValue) || 0,
       topProducts,
       topCategories,
       dailySales,
+      hourlyDistribution,
+      paymentBreakdown,
     });
   } catch (e: any) {
     console.error('REPORTS_GET_ERROR:', e);

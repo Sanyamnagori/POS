@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
+import ConfirmModal from '@/frontend/components/shared/ConfirmModal';
 
 interface Category { id: string; name: string; color: string; }
 interface Variant { attribute: string; value: string; extraPrice: number; }
@@ -19,6 +20,8 @@ export default function ProductsPage() {
   const [form, setForm] = useState({ name: '', categoryId: '', price: '', tax: '0', uom: 'Unit', priceTaxIncluded: true, description: '' });
   const [variants, setVariants] = useState<Variant[]>([]);
   const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<{ isOpen: boolean; id: string }>({ isOpen: false, id: '' });
 
   async function load() {
     try {
@@ -58,23 +61,44 @@ export default function ProductsPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setLoading(true);
     const body = { ...form, variants };
     try {
-      if (editProd) {
-        await fetch(`/api/products/${editProd.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        toast.success('Updated!');
-      } else {
-        await fetch('/api/products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        toast.success('Created!');
-      }
-      setShowModal(false); load();
-    } catch { toast.error('Error'); }
+      const res = editProd 
+        ? await fetch(`/api/products/${editProd.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        : await fetch('/api/products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      
+      if (!res.ok) throw new Error('Failed to save product');
+      
+      toast.success(editProd ? 'Updated!' : 'Created!');
+      setShowModal(false); 
+      load();
+    } catch { 
+      toast.error('Submission Failed'); 
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this product?')) return;
-    await fetch(`/api/products/${id}`, { method: 'DELETE' });
-    toast.success('Deleted!'); load();
+    setConfirmDelete({ isOpen: true, id });
+  }
+
+  async function executeDelete() {
+    const id = confirmDelete.id;
+    try {
+      const res = await fetch(`/api/products/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Failed to delete');
+      }
+      toast.success('Deleted!'); 
+      load();
+    } catch (e) {
+      toast.error('Purge Failed'); 
+    } finally {
+      setConfirmDelete({ isOpen: false, id: '' });
+    }
   }
 
   const filtered = (Array.isArray(products) ? products : []).filter(p => 
@@ -357,6 +381,16 @@ export default function ProductsPage() {
           </motion.div>
         </div>
       )}
+
+      <ConfirmModal 
+        isOpen={confirmDelete.isOpen}
+        title="Purge Asset?"
+        message="This will permanently delete the product and its variants from the registry."
+        onConfirm={executeDelete}
+        onCancel={() => setConfirmDelete({ isOpen: false, id: '' })}
+        confirmText="Confirm Purge"
+        type="danger"
+      />
     </div>
   );
 

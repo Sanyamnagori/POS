@@ -1,10 +1,187 @@
 'use client';
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
+
+function DynamicBackground() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let animationId: number;
+    let mouseX = 0;
+    let mouseY = 0;
+
+    const resize = () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight * 2; // cover full page scroll
+    };
+    resize();
+    window.addEventListener('resize', resize);
+
+    const handleMouse = (e: MouseEvent) => {
+      mouseX = e.clientX;
+      mouseY = e.clientY + window.scrollY;
+    };
+    window.addEventListener('mousemove', handleMouse);
+
+    // Floating orbs - more and bigger for the landing page
+    const orbs = Array.from({ length: 8 }, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      radius: Math.random() * 300 + 120,
+      vx: (Math.random() - 0.5) * 0.6,
+      vy: (Math.random() - 0.5) * 0.6,
+      hue: Math.random() > 0.5 ? 189 : 262,
+      opacity: Math.random() * 0.1 + 0.03,
+    }));
+
+    // Particles
+    const particles = Array.from({ length: 80 }, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      radius: Math.random() * 2.5 + 0.5,
+      vx: (Math.random() - 0.5) * 0.4,
+      vy: (Math.random() - 0.5) * 0.4,
+      opacity: Math.random() * 0.4 + 0.1,
+    }));
+
+    // Shooting stars
+    const shootingStars: { x: number; y: number; vx: number; vy: number; life: number; maxLife: number }[] = [];
+    let lastShootingStar = 0;
+
+    const animate = (time: number) => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Occasionally spawn a shooting star
+      if (time - lastShootingStar > 3000 + Math.random() * 4000) {
+        lastShootingStar = time;
+        shootingStars.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * canvas.height * 0.3,
+          vx: (Math.random() * 4 + 2) * (Math.random() > 0.5 ? 1 : -1),
+          vy: Math.random() * 2 + 1,
+          life: 0,
+          maxLife: 60 + Math.random() * 40,
+        });
+      }
+
+      // Draw shooting stars
+      for (let i = shootingStars.length - 1; i >= 0; i--) {
+        const ss = shootingStars[i];
+        ss.x += ss.vx;
+        ss.y += ss.vy;
+        ss.life++;
+        const alpha = 1 - ss.life / ss.maxLife;
+        if (alpha <= 0) {
+          shootingStars.splice(i, 1);
+          continue;
+        }
+        ctx.beginPath();
+        ctx.moveTo(ss.x, ss.y);
+        ctx.lineTo(ss.x - ss.vx * 8, ss.y - ss.vy * 8);
+        const grad = ctx.createLinearGradient(ss.x, ss.y, ss.x - ss.vx * 8, ss.y - ss.vy * 8);
+        grad.addColorStop(0, `rgba(6, 182, 212, ${alpha * 0.8})`);
+        grad.addColorStop(1, `rgba(6, 182, 212, 0)`);
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      // Draw orbs
+      orbs.forEach((orb) => {
+        const dx = mouseX - orb.x;
+        const dy = mouseY - orb.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 500) {
+          orb.vx += dx * 0.00002;
+          orb.vy += dy * 0.00002;
+        }
+
+        orb.x += orb.vx;
+        orb.y += orb.vy;
+
+        if (orb.x < -orb.radius) orb.x = canvas.width + orb.radius;
+        if (orb.x > canvas.width + orb.radius) orb.x = -orb.radius;
+        if (orb.y < -orb.radius) orb.y = canvas.height + orb.radius;
+        if (orb.y > canvas.height + orb.radius) orb.y = -orb.radius;
+
+        orb.vx *= 0.999;
+        orb.vy *= 0.999;
+
+        const gradient = ctx.createRadialGradient(orb.x, orb.y, 0, orb.x, orb.y, orb.radius);
+        if (orb.hue === 189) {
+          gradient.addColorStop(0, `rgba(6, 182, 212, ${orb.opacity})`);
+          gradient.addColorStop(0.5, `rgba(6, 182, 212, ${orb.opacity * 0.3})`);
+          gradient.addColorStop(1, 'rgba(6, 182, 212, 0)');
+        } else {
+          gradient.addColorStop(0, `rgba(139, 92, 246, ${orb.opacity})`);
+          gradient.addColorStop(0.5, `rgba(139, 92, 246, ${orb.opacity * 0.3})`);
+          gradient.addColorStop(1, 'rgba(139, 92, 246, 0)');
+        }
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(orb.x, orb.y, orb.radius, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Draw particles
+      particles.forEach((p) => {
+        p.x += p.vx;
+        p.y += p.vy;
+        if (p.x < 0) p.x = canvas.width;
+        if (p.x > canvas.width) p.x = 0;
+        if (p.y < 0) p.y = canvas.height;
+        if (p.y > canvas.height) p.y = 0;
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(6, 182, 212, ${p.opacity})`;
+        ctx.fill();
+      });
+
+      // Draw connections
+      particles.forEach((a, i) => {
+        particles.slice(i + 1).forEach((b) => {
+          const dx = a.x - b.x;
+          const dy = a.y - b.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 130) {
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.strokeStyle = `rgba(6, 182, 212, ${0.06 * (1 - dist / 130)})`;
+            ctx.lineWidth = 0.5;
+            ctx.stroke();
+          }
+        });
+      });
+
+      animationId = requestAnimationFrame(animate);
+    };
+
+    animate(0);
+
+    return () => {
+      cancelAnimationFrame(animationId);
+      window.removeEventListener('resize', resize);
+      window.removeEventListener('mousemove', handleMouse);
+    };
+  }, []);
+
+  return <canvas ref={canvasRef} className="fixed inset-0 z-0 pointer-events-none" />;
+}
 
 export default function LandingPage() {
   return (
     <div className="min-h-screen text-slate-200 overflow-hidden relative">
+      {/* Dynamic animated background */}
+      <DynamicBackground />
+
       {/* Navigation */}
       <nav className="fixed top-0 w-full z-50 bg-black/40 backdrop-blur-xl border-b border-white/5">
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
