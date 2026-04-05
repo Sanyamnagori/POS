@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { prisma } from '@/backend/database/prisma';
 
 // Send order to kitchen (status → SENT)
 export async function PUT(_req: NextRequest, { params }: { params: { id: string } }) {

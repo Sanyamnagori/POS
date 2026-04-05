@@ -5,24 +5,51 @@ import bcrypt from 'bcryptjs';
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, password } = await req.json();
+    const { email, password } = await req.json(); // 'email' can be email OR username from frontend
     if (!email || !password) {
-      return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
+      return NextResponse.json({ error: 'Missing credentials' }, { status: 400 });
     }
-    const user = await prisma.user.findUnique({ where: { email } });
+
+    // Attempt to find user by email or username
+    const user = await prisma.user.findFirst({ 
+      where: {
+        OR: [
+          { email: email },
+          { username: email }
+        ]
+      }
+    });
+
     if (!user) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
+
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
+
     const token = await signToken({ userId: user.id, email: user.email, role: user.role });
-    const res = NextResponse.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role } });
-    res.cookies.set('auth-token', token, { httpOnly: true, maxAge: 60 * 60 * 24 * 7, path: '/' });
+    const res = NextResponse.json({ 
+      user: { 
+        id: user.id, 
+        name: user.name, 
+        email: user.email, 
+        username: user.username, 
+        role: user.role 
+      } 
+    });
+
+    res.cookies.set('auth-token', token, { 
+      httpOnly: true, 
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 60 * 60 * 24 * 7, 
+      path: '/' 
+    });
+
     return res;
-  } catch (e) {
-    console.error(e);
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+  } catch (e: any) {
+    console.error('LOGIN_ERROR:', e);
+    return NextResponse.json({ error: e.message || 'Server error during authentication' }, { status: 500 });
   }
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { prisma } from '@/backend/database/prisma';
 
 // Customer submits order via QR
 export async function POST(req: NextRequest, { params }: { params: { token: string } }) {

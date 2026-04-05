@@ -158,30 +158,47 @@ async function main() {
   ]);
   console.log('Products created:', products.length);
 
-  // Create floor and tables
-  const floor = await prisma.floor.upsert({
-    where: { id: 'floor-ground' },
-    update: {},
-    create: { id: 'floor-ground', name: 'Ground Floor' },
+  // 1. Clear existing floors and tables to ensure a fresh layout
+  await prisma.table.deleteMany({});
+  await prisma.floor.deleteMany({});
+
+  // 2. Create Ground Floor (6 tables)
+  await prisma.floor.create({
+    data: {
+      name: 'Ground Floor',
+      tables: {
+        create: [
+          { number: 'G1', seats: 2, isActive: true },
+          { number: 'G2', seats: 4, isActive: true },
+          { number: 'G3', seats: 4, isActive: true },
+          { number: 'G4', seats: 6, isActive: true },
+          { number: 'G5', seats: 8, isActive: true },
+          { number: 'G6', seats: 4, isActive: true },
+        ],
+      },
+    },
   });
 
-  const tableData = [
-    { id: 'table-1', number: 'T1', seats: 4 },
-    { id: 'table-2', number: 'T2', seats: 2 },
-    { id: 'table-3', number: 'T3', seats: 6 },
-    { id: 'table-4', number: 'T4', seats: 4 },
-    { id: 'table-5', number: 'T5', seats: 2 },
-    { id: 'table-6', number: 'T6', seats: 8 },
-  ];
+  // 3. Create First Floor (8 tables)
+  await prisma.floor.create({
+    data: {
+      name: 'First Floor',
+      tables: {
+        create: [
+          { number: 'F1', seats: 2, isActive: true },
+          { number: 'F2', seats: 2, isActive: true },
+          { number: 'F3', seats: 4, isActive: true },
+          { number: 'F4', seats: 4, isActive: true },
+          { number: 'F5', seats: 6, isActive: true },
+          { number: 'F6', seats: 6, isActive: true },
+          { number: 'F7', seats: 8, isActive: true },
+          { number: 'F8', seats: 4, isActive: true },
+        ],
+      },
+    },
+  });
+  console.log('Floors and tables reset success!');
 
-  for (const t of tableData) {
-    await prisma.table.upsert({
-      where: { id: t.id },
-      update: {},
-      create: { ...t, floorId: floor.id },
-    });
-  }
-  console.log('Tables created:', tableData.length);
 
   // Create POS config
   await prisma.pOSConfig.upsert({

@@ -1,13 +1,13 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import toast from 'react-hot-toast';
+import { toast } from 'react-hot-toast';
 import { useCartStore } from '@/stores/useCartStore';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 
 interface Product {
-  id: string; name: string; price: number; tax: number; description?: string;
+  id: string; name: string; price: number; tax: number; uom?: string; description?: string;
   category: { id: string; name: string; color: string };
   variants: Array<{ id: string; attribute: string; value: string; extraPrice: number }>;
 }
@@ -49,6 +49,8 @@ export default function OrderPage({ params }: { params: { tableId: string } }) {
   const [showThankYou, setShowThankYou] = useState(false);
   const [loading, setLoading] = useState(false);
   const [orderId, setOrderIdState] = useState<string | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [selectedVariants, setSelectedVariants] = useState<Record<string, { id: string; price: number; value: string }>>({});
 
   useEffect(() => {
     setTable(params.tableId);
@@ -58,21 +60,62 @@ export default function OrderPage({ params }: { params: { tableId: string } }) {
         fetch('/api/pos-config'), fetch('/api/sessions'),
         fetch('/api/tables'),
       ]);
-      setProducts(await pr.json()); setCategories(await ca.json()); setConfig(await cf.json());
-      const sessionList = await sessions.json();
+      const [productsData, categoriesData, configData, sessionListData, tableListData] = await Promise.all([
+        pr.ok ? pr.json() : [],
+        ca.ok ? ca.json() : [],
+        cf.ok ? cf.json() : null,
+        sessions.ok ? sessions.json() : [],
+        tableRes.ok ? tableRes.json() : [],
+      ]);
+
+      setProducts(Array.isArray(productsData) ? productsData : []);
+      setCategories(Array.isArray(categoriesData) ? categoriesData : []);
+      setConfig(configData);
+
+      const sessionList = Array.isArray(sessionListData) ? sessionListData : [];
       const open = sessionList.find((s: { closedAt: string | null }) => !s.closedAt);
       if (open) setSession(open.id);
-      const tableList = await tableRes.json();
+
+      const tableList = Array.isArray(tableListData) ? tableListData : [];
       const t = tableList.find((tt: { id: string }) => tt.id === params.tableId);
       if (t) setTableInfo(t);
     }
     load();
   }, []);
 
-  const filtered = products.filter(p =>
-    (activeCat === 'all' || p.category.id === activeCat) &&
-    p.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = Array.isArray(products) ? products.filter(p =>
+    (activeCat === 'all' || p?.category?.id === activeCat) &&
+    p?.name?.toLowerCase().includes(search.toLowerCase())
+  ) : [];
+
+  const handleProductClick = (product: Product) => {
+    if (product.variants && product.variants.length > 0) {
+      setSelectedProduct(product);
+      setSelectedVariants({});
+    } else {
+      addItem({ productId: product.id, name: product.name, price: product.price, tax: product.tax, quantity: 1 });
+      toast.success(`${product.name} added`);
+    }
+  };
+
+  const confirmVariant = () => {
+    if (!selectedProduct) return;
+    const extra = Object.values(selectedVariants).reduce((s, v) => s + v.price, 0);
+    const variantNames = Object.values(selectedVariants).map(v => v.value).join(', ');
+    const variantIds = Object.values(selectedVariants).map(v => v.id).join('-'); // Simple composite ID or use the first one if we only support one attribute per product
+    
+    addItem({ 
+      productId: selectedProduct.id, 
+      variantId: Object.values(selectedVariants)[0]?.id, // For now, use the first selected variant ID as Prisma expects 1:1
+      name: `${selectedProduct.name}${variantNames ? ` (${variantNames})` : ''}`, 
+      price: selectedProduct.price + extra, 
+      tax: selectedProduct.tax, 
+      quantity: 1 
+    });
+    
+    setSelectedProduct(null);
+    toast.success('Added with options');
+  };
 
   async function sendToKitchen() {
     if (items.length === 0) { toast.error('Cart is empty'); return; }
@@ -105,9 +148,103 @@ export default function OrderPage({ params }: { params: { tableId: string } }) {
 
   async function handlePay() {
     if (!orderId) { toast.error('Send to kitchen first'); return; }
-    if (payMethod === 'UPI') { setShowQR(true); return; }
-    confirmPay();
+    
+    // For Cash, use the old flow
+    if (payMethod === 'CASH') {
+      confirmPay();
+      return;
+    }
+
+    // For Digital/UPI, use Razorpay
+    await displayRazorpay();
   }
+
+  const displayRazorpay = async () => {
+    if (!orderId) return;
+    setLoading(true);
+
+    try {
+      // 1. Create Order on Backend
+      const res = await fetch('/api/razorpay/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, amount: total() }),
+      });
+      const data = await res.json();
+
+      // 2. Open Razorpay Checkout
+      const razorpayKey = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
+      
+      if (!razorpayKey || razorpayKey === 'rzp_test_placeholder') {
+        toast.error('Razorpay is in test/placeholder mode. Please update your .env with valid keys.');
+        setLoading(false);
+        return;
+      }
+
+      const options = {
+        key: razorpayKey,
+        amount: data.amount,
+        currency: data.currency,
+        name: "Odoo POS Cafe",
+        description: `Order #${orderId.slice(-6)}`,
+        order_id: data.id,
+        handler: async function (response: any) {
+          // 3. Verify Payment
+          const verifyRes = await fetch('/api/razorpay/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              internalOrderId: orderId,
+              method: payMethod,
+              amount: total()
+            }),
+          });
+
+          const verifyData = await verifyRes.json();
+          if (verifyData.success) {
+            // Success Logic
+            try {
+              const { io } = await import('socket.io-client');
+              const socket = io(process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001');
+              socket.emit('PAYMENT_DONE', { orderId, tableId: params.tableId, amount: total() });
+              setTimeout(() => socket.disconnect(), 1000);
+            } catch {}
+
+            setShowQR(false); 
+            setShowThankYou(true);
+            clearCart();
+            setTimeout(() => { 
+                setShowThankYou(false); 
+                setShowPayment(false); 
+                setOrderIdState(null); 
+                router.push('/pos/floor'); 
+            }, 3000);
+          } else {
+            toast.error('Payment verification failed');
+          }
+        },
+        prefill: {
+          name: "Guest Customer",
+          email: "customer@example.com",
+          contact: "9999999999",
+        },
+        theme: {
+          color: "#4f46e5", // Indigo 600
+        },
+      };
+
+      const paymentObject = new (window as any).Razorpay(options);
+      paymentObject.open();
+
+    } catch (err) {
+      toast.error('Gateway Connection Error');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   async function confirmPay() {
     if (!orderId) return;
@@ -169,16 +306,19 @@ export default function OrderPage({ params }: { params: { tableId: string } }) {
           {filtered.map((product, idx) => (
             <button 
               key={product.id} 
-              onClick={() => addItem({ productId: product.id, name: product.name, price: product.price, tax: product.tax, quantity: 1 })}
+              onClick={() => handleProductClick(product)}
               style={{ animationDelay: `${idx * 40}ms` }}
-              className="group animate-slide-up bg-white border border-slate-100 rounded-3xl p-5 text-left hover:border-indigo-500/30 hover:shadow-2xl hover:shadow-indigo-500/5 transition-all relative overflow-hidden"
+              className="group animate-slide-up bg-white border border-slate-100 rounded-3xl p-6 text-left hover:border-indigo-500/30 hover:shadow-2xl hover:shadow-indigo-500/5 transition-all relative min-h-[200px] flex flex-col"
             >
               <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-2xl mb-4 group-hover:scale-110 group-hover:bg-indigo-50 transition-all duration-300">
                 {product.category.name === 'Beverages' ? '☕' : product.category.name === 'Food' ? '🍽️' : product.category.name === 'Snacks' ? '🍟' : '🍰'}
               </div>
-              <div className="font-extrabold text-slate-900 mb-1 tracking-tight group-hover:text-indigo-600 transition-colors uppercase text-sm leading-tight">{product.name}</div>
-              <div className="flex items-center justify-between mt-3">
-                <div className="text-indigo-600 font-extrabold text-lg tracking-tighter">₹{product.price}</div>
+              <div className="font-extrabold text-slate-900 mb-1 tracking-tight group-hover:text-indigo-600 transition-colors uppercase text-sm leading-tight flex-1">
+                {product.name}
+              </div>
+              <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">{product.uom || 'Unit'}</div>
+              <div className="flex items-center justify-between mt-auto pt-2">
+                <div className="text-indigo-600 font-black text-xl tracking-tighter">₹{product.price}</div>
                 <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold opacity-0 group-hover:opacity-100 transition-opacity">+</div>
               </div>
               {product.tax > 0 && <div className="absolute top-4 right-4 text-[9px] font-extrabold text-indigo-500/50 uppercase tracking-widest">+{product.tax}% Tax</div>}
@@ -293,10 +433,10 @@ export default function OrderPage({ params }: { params: { tableId: string } }) {
                 
                 <div className="space-y-4 mb-10">
                   {[
-                    { id: 'CASH', icon: '💵', label: 'Cash Payment', desc: 'Settle at counter' },
-                    { id: 'DIGITAL', icon: '💳', label: 'Card / Debit', desc: 'Secure terminal pay' },
-                    { id: 'UPI', icon: '📱', label: 'Instant UPI', desc: 'Scan any QR app' }
-                  ].map((m) => (
+                    { id: 'CASH', icon: '💵', label: 'Cash Payment', desc: 'Settle at counter', enabled: config?.cashEnabled },
+                    { id: 'DIGITAL', icon: '💳', label: 'Card / Debit', desc: 'Secure terminal pay', enabled: config?.digitalEnabled },
+                    { id: 'UPI', icon: '📱', label: 'Instant UPI', desc: 'Scan any QR app', enabled: config?.upiEnabled }
+                  ].filter(m => m.enabled).map((m) => (
                     <button 
                       key={m.id}
                       onClick={() => setPayMethod(m.id as any)} 
@@ -345,6 +485,51 @@ export default function OrderPage({ params }: { params: { tableId: string } }) {
               <div className="w-1.5 h-1.5 bg-indigo-600 rounded-full mx-1 animate-bounce" style={{ animationDelay: '0s' }} />
               <div className="w-1.5 h-1.5 bg-indigo-600 rounded-full mx-1 animate-bounce" style={{ animationDelay: '0.1s' }} />
               <div className="w-1.5 h-1.5 bg-indigo-600 rounded-full mx-1 animate-bounce" style={{ animationDelay: '0.2s' }} />
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Variant Selection Modal */}
+      {selectedProduct && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[70] flex items-center justify-center p-6">
+          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-[40px] w-full max-w-lg p-10 shadow-2xl relative overflow-hidden">
+            <div className="flex items-center gap-6 mb-8 pb-6 border-b border-slate-50">
+              <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-3xl flex items-center justify-center text-3xl font-bold">✨</div>
+              <div>
+                <h2 className="text-2xl font-black text-slate-900 tracking-tighter uppercase">{selectedProduct.name}</h2>
+                <p className="text-xs font-black text-slate-400 uppercase tracking-widest mt-1">Customize your selection</p>
+              </div>
+            </div>
+
+            <div className="space-y-8 mb-10">
+              {/* Group variants by attribute */}
+              {Array.from(new Set(selectedProduct.variants.map(v => v.attribute))).map(attr => (
+                <div key={attr} className="space-y-4">
+                  <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">{attr}</h3>
+                  <div className="flex flex-wrap gap-3">
+                    {selectedProduct.variants.filter(v => v.attribute === attr).map(v => (
+                      <button
+                        key={v.id}
+                        onClick={() => setSelectedVariants({ ...selectedVariants, [attr]: { id: v.id, price: v.extraPrice, value: v.value } })}
+                        className={`px-6 py-3 rounded-2xl border-2 transition-all text-xs font-black uppercase tracking-widest ${selectedVariants[attr]?.id === v.id ? 'border-indigo-600 bg-indigo-50 text-indigo-600 shadow-lg shadow-indigo-500/10' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}
+                      >
+                        {v.value} {v.extraPrice > 0 && <span className="ml-2 opacity-50">+₹{v.extraPrice}</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-4">
+              <button 
+                onClick={confirmVariant} 
+                className="btn-primary flex-1 !rounded-2xl !py-5 shadow-2xl shadow-indigo-600/20 text-lg uppercase font-black tracking-widest"
+              >
+                Confirm Addition
+              </button>
+              <button onClick={() => setSelectedProduct(null)} className="btn-secondary !rounded-2xl !py-5 uppercase font-black tracking-widest">Cancel</button>
             </div>
           </motion.div>
         </div>

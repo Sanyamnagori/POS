@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { prisma } from '@/backend/database/prisma';
 
 // Toggle item prepared status
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {

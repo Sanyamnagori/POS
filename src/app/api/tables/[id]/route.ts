@@ -1,13 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { prisma } from '@/backend/database/prisma';
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const data = await req.json();
-    if (data.seats) data.seats = parseInt(data.seats);
-    const table = await prisma.table.update({ where: { id: params.id }, data, include: { floor: true } });
+    if (data.seats !== undefined) data.seats = parseInt(data.seats);
+    const table = await prisma.table.update({ 
+      where: { id: params.id }, 
+      data, 
+      include: { floor: true } 
+    });
     return NextResponse.json(table);
   } catch (e) {
+    console.error(e);
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }

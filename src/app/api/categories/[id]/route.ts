@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { prisma } from '@/backend/database/prisma';
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -16,6 +16,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     await prisma.category.delete({ where: { id: params.id } });
     return NextResponse.json({ success: true });
   } catch (e) {
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+    console.error('Error deleting category:', e);
+    return NextResponse.json({ error: 'Server error: ' + (e instanceof Error ? e.message : 'Unknown error') }, { status: 500 });
   }
 }

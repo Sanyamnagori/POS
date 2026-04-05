@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/backend/database/prisma';
+import { queryCustom } from '@/backend/database/direct';
 
 export async function GET(req: NextRequest) {
   try {
@@ -19,41 +19,45 @@ export async function GET(req: NextRequest) {
       if (from) startDate = new Date(from);
     }
 
-    const where: Record<string, unknown> = {
-      status: 'PAID',
-      createdAt: { gte: startDate },
-    };
-    if (sessionId) where.sessionId = sessionId;
+    const startDateStr = startDate.toISOString();
+    
+    // Fetch paid orders within the period
+    let orderQuery = 'SELECT * FROM "Order" WHERE status = \'PAID\' AND "createdAt" >= $1';
+    const queryParams: any[] = [startDateStr];
 
-    const orders = await prisma.order.findMany({
-      where,
-      include: {
-        items: { include: { product: { include: { category: true } } } },
-        payment: true,
-      },
-    });
+    if (sessionId) {
+      orderQuery += ' AND "sessionId" = $2';
+      queryParams.push(sessionId);
+    }
+
+    const orders = await queryCustom(orderQuery, queryParams);
+
+    // Fetch order items with product and category info
+    const items = await queryCustom(`
+      SELECT i.*, p.name as "productName", c.name as "categoryName", c.id as "categoryId"
+      FROM "OrderItem" i
+      JOIN "Product" p ON i."productId" = p.id
+      LEFT JOIN "Category" c ON p."categoryId" = c.id
+      WHERE i."orderId" IN (SELECT id FROM "Order" WHERE status = 'PAID' AND "createdAt" >= $1 ${sessionId ? 'AND "sessionId" = $2' : ''})
+    `, queryParams);
 
     const totalOrders = orders.length;
-    const totalRevenue = orders.reduce((sum, o) => sum + o.total, 0);
+    const totalRevenue = orders.reduce((sum: number, o: any) => sum + o.total, 0);
     const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
-    // Top products
     const productMap: Record<string, { name: string; qty: number; revenue: number }> = {};
     const categoryMap: Record<string, { name: string; revenue: number }> = {};
 
-    orders.forEach((o) => {
-      o.items.forEach((item) => {
-        const pid = item.productId;
-        if (!productMap[pid]) productMap[pid] = { name: item.product.name, qty: 0, revenue: 0 };
-        productMap[pid].qty += item.quantity;
-        productMap[pid].revenue += item.price * item.quantity;
+    items.forEach((item: any) => {
+      const pid = item.productId;
+      if (!productMap[pid]) productMap[pid] = { name: item.productName, qty: 0, revenue: 0 };
+      productMap[pid].qty += item.quantity;
+      productMap[pid].revenue += item.price * item.quantity;
 
-        const cat = item.product.category;
-        if (cat) {
-          if (!categoryMap[cat.id]) categoryMap[cat.id] = { name: cat.name, revenue: 0 };
-          categoryMap[cat.id].revenue += item.price * item.quantity;
-        }
-      });
+      if (item.categoryId) {
+        if (!categoryMap[item.categoryId]) categoryMap[item.categoryId] = { name: item.categoryName, revenue: 0 };
+        categoryMap[item.categoryId].revenue += item.price * item.quantity;
+      }
     });
 
     const topProducts = Object.values(productMap)
@@ -63,9 +67,8 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 5);
 
-    // Daily sales for chart (last 7 days)
     const dailySales: Record<string, number> = {};
-    orders.forEach((o) => {
+    orders.forEach((o: any) => {
       const day = new Date(o.createdAt).toLocaleDateString('en-IN');
       if (!dailySales[day]) dailySales[day] = 0;
       dailySales[day] += o.total;
@@ -79,8 +82,8 @@ export async function GET(req: NextRequest) {
       topCategories,
       dailySales,
     });
-  } catch (e) {
-    console.error(e);
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+  } catch (e: any) {
+    console.error('REPORTS_GET_ERROR:', e);
+    return NextResponse.json({ error: e.message || 'Database execution failed' }, { status: 500 });
   }
 }
